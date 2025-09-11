@@ -104,7 +104,7 @@ def get_3dpw_dataloader(split,cfg,shuffle,batch_size=None):
         return dataloader_train
     elif split=="test":
         in_F, out_F = cfg.t_his, cfg.t_pred
-        dataset_test = create_dataset("3dpw",  split="test", track_size=(in_F+out_F), track_cutoff=in_F, segmented=True)
+        dataset_test = create_dataset("3dpw",  split="test", track_size=(in_F+out_F), track_cutoff=in_F, segmented=cfg.segmented)
         dataloader_test = DataLoader(dataset_test, batch_size=cfg.batch_size if batch_size==None else batch_size, num_workers=cfg.num_workers, shuffle=shuffle, collate_fn=collate_batch)
         return dataloader_test
     elif split=="jrt":

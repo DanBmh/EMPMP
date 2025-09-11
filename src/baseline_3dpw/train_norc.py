@@ -56,7 +56,7 @@ os.makedirs(expr_dir, exist_ok=True)
 
 # Ensure reproducibility
 seed_set(args.seed)
-torch.use_deterministic_algorithms(True)
+torch.use_deterministic_algorithms(False)
 
 # Record metric file
 acc_log_dir = os.path.join(expr_dir, 'acc_log.txt')

@@ -15,3 +15,4 @@ src_copy/
 # Ignore pretrained model files but keep the directory
 pt_ckpts/*
 !pt_ckpts/.gitkeep
+src/*.egg-info
