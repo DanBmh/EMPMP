@@ -5,6 +5,7 @@ from metrics import VIM, VAM
 from src.models_dual_inter_traj_3dpw.utils import Get_RC_Data,visuaulize,paixu_person
 from src.models_dual_inter_traj_3dpw.model import inverse_sort_tensor
 import time
+import tqdm
 
 def random_pred(config, model,iter):
     device=config.device
@@ -278,9 +279,9 @@ def mpjpe_vim_test(config, model, eval_generator,is_mocap,select_vim_frames=[1, 
             loss2=torch.sqrt(((motion_pred[:,:,:frame2]/1.8 - h36m_motion_target[:,:,:frame2]/1.8) ** 2).sum(dim=-1)).mean(dim=-1).mean(dim=-1).numpy().astype(np.float64)
             loss3=torch.sqrt(((motion_pred[:,:,:frame3]/1.8 - h36m_motion_target[:,:,:frame3]/1.8) ** 2).sum(dim=-1)).mean(dim=-1).mean(dim=-1).numpy().astype(np.float64)
         else: # mupots数据集or 3dpw数据集
-            loss1=torch.sqrt(((motion_pred[:,:,:frame1] - h36m_motion_target[:,:,:frame1]) ** 2).sum(dim=-1)).mean(dim=-1).mean(dim=-1).numpy().astype(np.float64)
-            loss2=torch.sqrt(((motion_pred[:,:,:frame2] - h36m_motion_target[:,:,:frame2]) ** 2).sum(dim=-1)).mean(dim=-1).mean(dim=-1).numpy().astype(np.float64)
-            loss3=torch.sqrt(((motion_pred[:,:,:frame3] - h36m_motion_target[:,:,:frame3]) ** 2).sum(dim=-1)).mean(dim=-1).mean(dim=-1).numpy().astype(np.float64)
+            loss1=torch.sqrt(((motion_pred[:,:,frame1] - h36m_motion_target[:,:,frame1]) ** 2).sum(dim=-1)).mean(dim=-1).numpy().astype(np.float64)
+            loss2=torch.sqrt(((motion_pred[:,:,frame2] - h36m_motion_target[:,:,frame2]) ** 2).sum(dim=-1)).mean(dim=-1).numpy().astype(np.float64)
+            loss3=torch.sqrt(((motion_pred[:,:,frame3] - h36m_motion_target[:,:,frame3]) ** 2).sum(dim=-1)).mean(dim=-1).numpy().astype(np.float64)
         loss1=np.mean(loss1,axis=-1).tolist()
         loss2=np.mean(loss2,axis=-1).tolist()
         loss3=np.mean(loss3,axis=-1).tolist()
@@ -371,10 +372,10 @@ def mpjpe_vim_test(config, model, eval_generator,is_mocap,select_vim_frames=[1, 
     # import pdb;pdb.set_trace()
     # joint_list=torch.cat(joint_list,dim=0)
     # torch.save(joint_list,'somof_test_rc.pt',_use_new_zipfile_serialization=False)
-    # start_time=time.time()
-    # batch_num=0
-    for (joints, masks, padding_mask) in eval_generator:
-        # batch_num+=1
+    start_time=time.time()
+    batch_num=0
+    for (joints, masks, padding_mask) in tqdm.tqdm(eval_generator):
+        batch_num+=1
         h36m_motion_input=joints[:,:,:config.t_his].flatten(-2)#16
         h36m_motion_target=joints[:,:,config.t_his:].flatten(-2)#14
             
@@ -388,7 +389,7 @@ def mpjpe_vim_test(config, model, eval_generator,is_mocap,select_vim_frames=[1, 
         if config.paixu:
             motion_pred=inverse_sort_tensor(motion_pred,sorted_indices)
             h36m_motion_target=inverse_sort_tensor(h36m_motion_target,sorted_indices)
-        cal_vim(motion_pred,h36m_motion_target,vim_avg)
+        # cal_vim(motion_pred,h36m_motion_target,vim_avg)
         loss1,loss2,loss3=cal_mpjpe(motion_pred,h36m_motion_target,is_mocap=is_mocap,select_frames=select_mpjpe_frames)
         jpe=cal_jpe(motion_pred,h36m_motion_target,is_mocap=is_mocap,select_frames=select_mpjpe_frames)
         ape=cal_ape(motion_pred,h36m_motion_target,is_mocap=is_mocap,select_frames=select_mpjpe_frames)
@@ -402,8 +403,8 @@ def mpjpe_vim_test(config, model, eval_generator,is_mocap,select_vim_frames=[1, 
         jpe_res.append(jpe)
         ape_res.append(ape)
         fde_res.append(fde)
-    # end_time=time.time()
-    # print('time_per_batch:********************',(end_time-start_time)/batch_num)
+    end_time=time.time()
+    print('time_per_batch:********************',(end_time-start_time)/batch_num)
     mpjpe_res.append(np.mean(loss_list1))
     mpjpe_res.append(np.mean(loss_list2))
     mpjpe_res.append(np.mean(loss_list3))
@@ -417,7 +418,9 @@ def mpjpe_vim_test(config, model, eval_generator,is_mocap,select_vim_frames=[1, 
     
     fde_res=np.array(fde_res)
     fde_res=np.mean(fde_res,axis=0)
-    return mpjpe_res,vim_avg.avg[select_vim_frames]/1.8 if is_mocap else vim_avg.avg[select_vim_frames],jpe_res,ape_res,fde_res
+
+    # return mpjpe_res,vim_avg.avg[select_vim_frames]/1.8 if is_mocap else vim_avg.avg[select_vim_frames],jpe_res,ape_res,fde_res
+    return mpjpe_res,-1,jpe_res,ape_res,fde_res
 
 def vim_test(config, model, eval_generator,dataset="3dpw",return_all=True,select_frames=[1, 3, 7, 9, 13]):    
     device=config.device

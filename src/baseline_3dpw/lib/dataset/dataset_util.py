@@ -185,7 +185,9 @@ class MultiPersonPoseDataset(torch.utils.data.Dataset):
             self.datalist = tracks
 
         # If we're on a train split, do some additional data augmentation as well
-        if self.add_flips:
+        if self.add_flips and not self.dsname == "cmu-mocap":
+            # If the dataset is too big, dont flip it, it will result in out-of-memory problems while training
+
             print("doing some flips for " + self.name + ", " + self.split + " split")
             # for each sequence, we can also add a "flipped" sequence
             flipped_datalist = []
@@ -263,6 +265,7 @@ class ThreeDPWDataset(MultiPersonPoseDataset):
 
     def load_data(self):
         self.data = load_data_3dpw_multiperson(split=self.split)# 26 seq
+        print(len(self.data))
 
         self.datalist = []
         for scene in self.data:
@@ -270,10 +273,144 @@ class ThreeDPWDataset(MultiPersonPoseDataset):
                        torch.from_numpy(mask)[:,self.SOMOF_JOINTS]) for joints, mask in scene]
             self.datalist.append(people)
 
+class SkeldaDataset(MultiPersonPoseDataset):
+    def __init__(self, **args):
+        super(SkeldaDataset, self).__init__("3dpw", frequency=1, **args)
+        
+    def load_data(self):
+        import copy
+        import sys
+        sys.path.append("/PoseForecasters/")
+        import utils_pipeline
+        import tqdm
+
+        datamode = "gt-gt"
+        # datamode = "pred-pred"
+
+        config = {
+            "item_step": 2,
+            "window_step": 2,
+            # "item_step": 1,
+            # "window_step": 1,
+            "select_joints": [
+                "hip_right",
+                "hip_left",
+                "knee_right",
+                "knee_left",
+                "ankle_right",
+                "ankle_left",
+                "nose",
+                "shoulder_right",
+                "shoulder_left",
+                "elbow_right",
+                "elbow_left",
+                "wrist_right",
+                "wrist_left",
+            ],
+        }
+
+        datasets_train = [
+            "/datasets/preprocessed/human36m/train_forecast_rpt.json",
+            # "/datasets/preprocessed/cmu-mocap/train.json",
+        ]
+
+        dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_rpt.json"
+        # dataset_eval_test = "/datasets/preprocessed/cmu-mocap/{}.json"
+        self.seq_len = 50+25
+        # self.seq_len = 60+30
+        # self.seq_len = 180+90
+        self.dsname = dataset_eval_test.split("/")[-2]
+        J = 13
+
+        config["input_n"] = self.seq_len // 3 * 2
+        config["output_n"] = self.seq_len // 3
+        print(config)
+
+        # Load preprocessed datasets
+        print("Loading datasets ...")
+        dataset = None
+        if self.split == "train":
+            dataset_train, dlen_train = [], 0
+            for dp in datasets_train:
+                cfg = copy.deepcopy(config)
+                if "mocap" in dp:
+                    cfg["select_joints"][
+                        cfg["select_joints"].index("nose")
+                    ] = "head_upper"
+
+                ds, dlen = utils_pipeline.load_dataset(dp, "train", cfg)
+                dataset_train.extend(ds["sequences"])
+                dlen_train += dlen
+            dataset = dataset_train
+            dlen = dlen_train
+        else:
+            if self.split != "test":
+                esplit = "test" if "mocap" in dataset_eval_test else "eval"
+            else:
+                esplit = "test"
+            cfg = copy.deepcopy(config)
+            if "mocap" in dataset_eval_test:
+                cfg["select_joints"][cfg["select_joints"].index("nose")] = "head_upper"
+            dataset_eval, dlen_eval = utils_pipeline.load_dataset(
+                dataset_eval_test, esplit, cfg
+            )
+            dataset_eval = dataset_eval["sequences"]
+            dataset = dataset_eval
+            dlen = dlen_eval
+
+        label_gen = utils_pipeline.create_labels_generator(dataset, config)
+        all_data = []
+        nbatch = 1
+        for batch in tqdm.tqdm(
+            utils_pipeline.batch_iterate(label_gen, batch_size=nbatch),
+            total=int(dlen / nbatch),
+        ):
+            sequences_train = utils_pipeline.make_input_sequence(
+                batch, "input", datamode, make_relative=False
+            )
+            sequences_gt = utils_pipeline.make_input_sequence(
+                batch, "target", datamode, make_relative=False
+            )
+
+            # Switch y and z axes
+            sequences_train = sequences_train[:, :, :, [0, 2, 1]]
+            sequences_gt = sequences_gt[:, :, :, [0, 2, 1]]
+
+            # Reshape to [nbatch, npersons, nframes, njoints, 3]
+            sequences_train = sequences_train.reshape(
+                [nbatch, 1, sequences_train.shape[1], J, 3]
+            )
+            sequences_gt = sequences_gt.reshape(
+                [nbatch, 1, sequences_gt.shape[1], J, 3]
+            )
+
+            temp_data = np.concatenate([sequences_train, sequences_gt], axis=2)
+            temp_data = temp_data[0]
+
+            # Duplicate for 2 persons, this is a simple addition to fix the training,
+            # which also should not affect the model's performance
+            temp_data = np.concatenate([temp_data, temp_data], axis=0)
+
+            all_data.append(temp_data)
+
+            # if len(all_data) >= 1000:
+            #     break
+
+        all_data = np.stack(all_data, axis=0)
+        data = torch.from_numpy(all_data)
+        print(data.shape)
+
+        self.num_kps = 13
+        self.datalist = [[(person, torch.ones(person.shape[:-1])) for person in track] for track in data]
+
+
+# Comment this out for a non-skelda test
+ThreeDPWDataset = SkeldaDataset
 
 def create_dataset(dataset_name, **args):
     
     if dataset_name == "3dpw":
+        print(args)
         dataset = ThreeDPWDataset(**args)
     elif dataset_name == "somof":
         dataset = SoMoFDataset(**args)

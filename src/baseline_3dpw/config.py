@@ -48,14 +48,41 @@ C.dataset="others"
 C.h36m_anno_dir = osp.join(C.root_dir, 'data/h36m/')
 C.motion = edict()
 
+# C.n_p=3
+# C.t_his=16
+# C.t_pred=14
+# C.dct_len=16
+# if C.dct_len >C.t_his:
+#     C.dct_len=C.t_his
+# C.t_pred_eval=14
+# C.n_joint=13
+
 C.n_p=3
-C.t_his=16
-C.t_pred=14
-C.dct_len=16
+C.t_his=50
+C.t_pred=25
+C.dct_len=50
 if C.dct_len >C.t_his:
     C.dct_len=C.t_his
-C.t_pred_eval=14
+C.t_pred_eval=25
 C.n_joint=13
+
+# C.n_p=3
+# C.t_his=60
+# C.t_pred=30
+# C.dct_len=60
+# if C.dct_len >C.t_his:
+#     C.dct_len=C.t_his
+# C.t_pred_eval=30
+# C.n_joint=13
+
+# C.n_p=3
+# C.t_his=180
+# C.t_pred=90
+# C.dct_len=180
+# if C.dct_len >C.t_his:
+#     C.dct_len=C.t_his
+# C.t_pred_eval=90
+# C.n_joint=13
 
 C.motion.h36m_input_length = C.t_his
 C.motion.h36m_input_length_dct = C.dct_len

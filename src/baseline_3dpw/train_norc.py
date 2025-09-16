@@ -43,8 +43,8 @@ parser.add_argument('--debug', type=bool, default=False)
 parser.add_argument('--n_p', type=int, default=2)
 parser.add_argument('--model_path', type=str, default=None)
 parser.add_argument('--vis_every', type=int, default=250000000000)
-parser.add_argument('--save_every', type=int, default=100)
-parser.add_argument('--print_every', type=int, default=100)
+parser.add_argument('--save_every', type=int, default=1000)
+parser.add_argument('--print_every', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=128)
 args = parser.parse_args()
 
@@ -109,14 +109,19 @@ config.dct_m=dct_m
 config.idct_m=idct_m
 
 def train_step(h36m_motion_input, h36m_motion_target,padding_mask, model, optimizer, nb_iter, total_iter, max_lr, min_lr) :
+
+    # print(h36m_motion_input.shape,h36m_motion_target.shape,padding_mask.shape)
+    # print(h36m_motion_input[0,0,0])
+    # exit()
+
     if args.random_rotate:
         h36m_motion_input,h36m_motion_target=getRandomRotatePoseTransform(h36m_motion_input,h36m_motion_target)
     if args.paixu:#DCT之前
         h36m_motion_input,h36m_motion_target,sorted_indices=paixu_person(h36m_motion_input,h36m_motion_target)
     if args.permute_p:
         h36m_motion_input,h36m_motion_target=getRandomPermuteOrder(h36m_motion_input,h36m_motion_target)
-    if config.rc:
-        h36m_motion_input,h36m_motion_target=Get_RC_Data(h36m_motion_input,h36m_motion_target)
+    # if config.rc:
+    #     h36m_motion_input,h36m_motion_target=Get_RC_Data(h36m_motion_input,h36m_motion_target)
     # for_vis=h36m_motion_target[:1].reshape(1,2,14,-1,3).cpu().detach().numpy()
     # visuaulize(for_vis,'正确输出，rc前','可视化测试',input_len=16,dataset='3dpw')    
     motion_pred=predict(model,h36m_motion_input,config,h36m_motion_target)#b,p,n,c
@@ -162,13 +167,15 @@ def train_step(h36m_motion_input, h36m_motion_target,padding_mask, model, optimi
 # Create model
 model = Model(config).to(device=config.device)
 model.train()
-print(">>> total params: {:.2f}M".format(
+print(">>> total params: {:.3f}M".format(
     sum(p.numel() for p in list(model.parameters())) / 1000000.0))
 
 dataloader_train=get_3dpw_dataloader(split="train",cfg=config,shuffle=True)#-1040.5767
-dataloader_test=get_3dpw_dataloader(split="jrt",cfg=config,shuffle=True)#-5.9048
-dataloader_test_sample=get_3dpw_dataloader(split="jrt",cfg=config,shuffle=True,batch_size=1)#-5.9048
-random_iter=iter(dataloader_test_sample)
+dataloader_test=get_3dpw_dataloader(split="test",cfg=config,shuffle=True)#-5.9048
+# dataloader_test=get_3dpw_dataloader(split="test",cfg=config,shuffle=True,batch_size=1)#-5.9048
+
+# dataloader_test_sample=get_3dpw_dataloader(split="jrt",cfg=config,shuffle=True,batch_size=1)#-5.9048
+# random_iter=iter(dataloader_test_sample)
 
 # initialize optimizer
 optimizer = torch.optim.Adam(model.parameters(),
@@ -258,59 +265,67 @@ while (nb_iter + 1) < config.cos_lr_total_iters:
                 print("begin test")
                 
                 # vim_3dpw=vim_test(config, model, dataloader_test,dataset="3dpw")
-                mpjpe,vim,jpe,ape,fde=mpjpe_vim_test(config, model, dataloader_test,is_mocap=False,select_vim_frames=[1, 3, 7, 9, 13],select_mpjpe_frames=[7,14,14])
-                
+                print_frames = [0, 1, 2]
+                if config.t_pred == 25:
+                    print_frames = [0, 9, 24]
+                elif config.t_pred_eval == 30:
+                    print_frames = [0, 11, 29]
+                elif config.t_pred_eval == 90:
+                    print_frames = [29, 59, 89]
+                mpjpe,vim,jpe,ape,fde=mpjpe_vim_test(config, model, dataloader_test,is_mocap=False,select_vim_frames=[1, 3, 7, 9, 13],select_mpjpe_frames=print_frames)
+
                 print(f"iter:{nb_iter},vim:",vim)
                 print(f"iter:{nb_iter},mpjpe:",mpjpe)
                 
-                update_metric(metric_best,"vim",vim,nb_iter)
-                update_metric(metric_best,"mpjpe",mpjpe,nb_iter)
-                update_metric(metric_best,"jpe",jpe,nb_iter)
-                update_metric(metric_best,"ape",ape,nb_iter)
-                update_metric(metric_best,"fde",fde,nb_iter)
-                ##log acc_log
-                
-                # if min_vim>vim.mean():
-                #     min_vim=vim.mean()
-                #     torch.save(model.state_dict(), config.snapshot_dir + '/model-best' + '.pth')
-                # torch.save(model.state_dict(), config.snapshot_dir + '/model-iter-' + str(nb_iter + 1) + '.pth')
-                
-                # line = 'vim_3dpw:'         
-                # line+=str(vim.mean())+' '
-                # for ii in vim:
-                #     line += str(ii) + ' '
-                # line += '\n'
-                # acc_log.write(''.join(line))
+                # update_metric(metric_best,"vim",vim,nb_iter)
+                # update_metric(metric_best,"mpjpe",mpjpe,nb_iter)
+                # update_metric(metric_best,"jpe",jpe,nb_iter)
+                # update_metric(metric_best,"ape",ape,nb_iter)
+                # update_metric(metric_best,"fde",fde,nb_iter)
+                # ##log acc_log
 
-                # acc_log.flush()
-                write("vim",vim,nb_iter,acc_log)
-                write("mpjpe",mpjpe,nb_iter,acc_log)
-                write("jpe",jpe,nb_iter,acc_log)
-                write("ape",ape,nb_iter,acc_log)
-                write("fde",fde,nb_iter,acc_log)
+                # # if min_vim>vim.mean():
+                # #     min_vim=vim.mean()
+                # #     torch.save(model.state_dict(), config.snapshot_dir + '/model-best' + '.pth')
+                # # torch.save(model.state_dict(), config.snapshot_dir + '/model-iter-' + str(nb_iter + 1) + '.pth')
 
-                write("vim",metric_best.vim.val,metric_best.vim.iter,acc_best_log)
-                write("mpjpe",metric_best.mpjpe.val,metric_best.mpjpe.iter,acc_best_log)
-                write("jpe",metric_best.jpe.val,metric_best.jpe.iter,acc_best_log)
-                write("ape",metric_best.ape.val,metric_best.ape.iter,acc_best_log)
-                write("fde",metric_best.fde.val,metric_best.fde.iter,acc_best_log)
+                # # line = 'vim_3dpw:'         
+                # # line+=str(vim.mean())+' '
+                # # for ii in vim:
+                # #     line += str(ii) + ' '
+                # # line += '\n'
+                # # acc_log.write(''.join(line))
+
+                # # acc_log.flush()
+                # write("vim",vim,nb_iter,acc_log)
+                # write("mpjpe",mpjpe,nb_iter,acc_log)
+                # write("jpe",jpe,nb_iter,acc_log)
+                # write("ape",ape,nb_iter,acc_log)
+                # write("fde",fde,nb_iter,acc_log)
+
+                # write("vim",metric_best.vim.val,metric_best.vim.iter,acc_best_log)
+                # write("mpjpe",metric_best.mpjpe.val,metric_best.mpjpe.iter,acc_best_log)
+                # write("jpe",metric_best.jpe.val,metric_best.jpe.iter,acc_best_log)
+                # write("ape",metric_best.ape.val,metric_best.ape.iter,acc_best_log)
+                # write("fde",metric_best.fde.val,metric_best.fde.iter,acc_best_log)
                 
                 model.train()
-        # Visualize model
-        if ((nb_iter + 1) % config.vis_every ==  0 ) :
-            model.eval()
-            with torch.no_grad():  
-                
-                h36m_motion_input,motion_pred=random_pred(config=config,model=model,iter=random_iter)
-                
-                if h36m_motion_input is not None:
-                    b,p,n,c = motion_pred.shape
-                    motion_pred = motion_pred.reshape(b,p,n,config.n_joint,3)
-                    h36m_motion_input=h36m_motion_input.reshape(b,p,config.t_his,config.n_joint,3)
-                    motion=torch.cat([h36m_motion_input,motion_pred],dim=2).cpu().detach().numpy()
-                    visuaulize(motion,f"iter:{nb_iter}",config.vis_dir,input_len=15,dataset='mupots')
-                
-                model.train()
+
+        # # Visualize model
+        # if ((nb_iter + 1) % config.vis_every ==  0 ) :
+        #     model.eval()
+        #     with torch.no_grad():  
+
+        #         h36m_motion_input,motion_pred=random_pred(config=config,model=model,iter=random_iter)
+
+        #         if h36m_motion_input is not None:
+        #             b,p,n,c = motion_pred.shape
+        #             motion_pred = motion_pred.reshape(b,p,n,config.n_joint,3)
+        #             h36m_motion_input=h36m_motion_input.reshape(b,p,config.t_his,config.n_joint,3)
+        #             motion=torch.cat([h36m_motion_input,motion_pred],dim=2).cpu().detach().numpy()
+        #             # visuaulize(motion,f"iter:{nb_iter}",config.vis_dir,input_len=15,dataset='mupots')
+
+        #         model.train()
         if (nb_iter + 1) == config.cos_lr_total_iters :
             break
         nb_iter += 1
