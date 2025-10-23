@@ -185,7 +185,7 @@ class MultiPersonPoseDataset(torch.utils.data.Dataset):
             self.datalist = tracks
 
         # If we're on a train split, do some additional data augmentation as well
-        if self.add_flips and not self.dsname == "cmu-mocap":
+        if self.add_flips and self.dsname == "human36m":
             # If the dataset is too big, dont flip it, it will result in out-of-memory problems while training
 
             print("doing some flips for " + self.name + ", " + self.split + " split")
@@ -286,12 +286,15 @@ class SkeldaDataset(MultiPersonPoseDataset):
 
         datamode = "gt-gt"
         # datamode = "pred-pred"
+        # datamode = "pred-gt"
 
         config = {
             "item_step": 2,
             "window_step": 2,
             # "item_step": 1,
             # "window_step": 1,
+            # "item_step": 4,
+            # "window_step": 8,  # reduced data amount to fix memory overflow
             "select_joints": [
                 "hip_right",
                 "hip_left",
@@ -312,6 +315,9 @@ class SkeldaDataset(MultiPersonPoseDataset):
         datasets_train = [
             "/datasets/preprocessed/human36m/train_forecast_rpt.json",
             # "/datasets/preprocessed/cmu-mocap/train.json",
+            # "/datasets/preprocessed/amass/bmlmovi.json",
+            # "/datasets/preprocessed/amass/bmlrub.json",
+            # "/datasets/preprocessed/amass/kit.json",
         ]
 
         dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_rpt.json"
@@ -319,7 +325,7 @@ class SkeldaDataset(MultiPersonPoseDataset):
         self.seq_len = 50+25
         # self.seq_len = 60+30
         # self.seq_len = 180+90
-        self.dsname = dataset_eval_test.split("/")[-2]
+        self.dsname = datasets_train[0].split("/")[-2]
         J = 13
 
         config["input_n"] = self.seq_len // 3 * 2
@@ -334,11 +340,24 @@ class SkeldaDataset(MultiPersonPoseDataset):
             for dp in datasets_train:
                 cfg = copy.deepcopy(config)
                 if "mocap" in dp:
-                    cfg["select_joints"][
-                        cfg["select_joints"].index("nose")
-                    ] = "head_upper"
+                    cfg["select_joints"][cfg["select_joints"].index("nose")] = "head_upper"
+                    cfg["item_step"] = 1
+                    cfg["window_step"] = 1
+                if "mocap" in dp and config["item_step"] == 4:
+                    cfg["window_step"] = 2
 
                 ds, dlen = utils_pipeline.load_dataset(dp, "train", cfg)
+                if "mocap" in dp and config["item_step"] == 4:
+                    # repeat frames so that skipping them later results in the correct frame rate
+                    seqs = ds["sequences"]
+                    for i in range(len(seqs)):
+                        nseq = []
+                        for j in range(len(seqs[i]["samples"])):
+                            for _ in range(4):
+                                nseq.append(seqs[i]["samples"][j])
+                        seqs[i]["samples"] = nseq
+                        seqs[i]["seq_length"] *= 4
+                    ds["sequences"] = seqs
                 dataset_train.extend(ds["sequences"])
                 dlen_train += dlen
             dataset = dataset_train
@@ -351,6 +370,8 @@ class SkeldaDataset(MultiPersonPoseDataset):
             cfg = copy.deepcopy(config)
             if "mocap" in dataset_eval_test:
                 cfg["select_joints"][cfg["select_joints"].index("nose")] = "head_upper"
+                cfg["item_step"] = 1
+                cfg["window_step"] = 1
             dataset_eval, dlen_eval = utils_pipeline.load_dataset(
                 dataset_eval_test, esplit, cfg
             )
@@ -358,7 +379,12 @@ class SkeldaDataset(MultiPersonPoseDataset):
             dataset = dataset_eval
             dlen = dlen_eval
 
-        label_gen = utils_pipeline.create_labels_generator(dataset, config)
+
+        cfg = copy.deepcopy(config)
+        if self.split != "train" and "mocap" in dataset_eval_test:
+            cfg["item_step"] = 1
+            cfg["window_step"] = 1
+        label_gen = utils_pipeline.create_labels_generator(dataset, cfg)
         all_data = []
         nbatch = 1
         for batch in tqdm.tqdm(

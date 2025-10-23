@@ -46,6 +46,7 @@ parser.add_argument('--vis_every', type=int, default=250000000000)
 parser.add_argument('--save_every', type=int, default=1000)
 parser.add_argument('--print_every', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=128)
+parser.add_argument('--model_name', type=str, default="model_new")
 args = parser.parse_args()
 
 # Create folder
@@ -108,11 +109,22 @@ idct_m = torch.tensor(idct_m).float().to(config.device).unsqueeze(0)
 config.dct_m=dct_m
 config.idct_m=idct_m
 
+def random_add(tensor: torch.Tensor, factor: float):
+    """Amount of additional white-noise dithering to prevent quantization artifacts"""
+
+    noise = factor * torch.randn_like(tensor)
+    noise = torch.clamp(noise, -5 * factor, 5 * factor)
+    tensor = tensor + noise
+    return tensor
+
 def train_step(h36m_motion_input, h36m_motion_target,padding_mask, model, optimizer, nb_iter, total_iter, max_lr, min_lr) :
 
     # print(h36m_motion_input.shape,h36m_motion_target.shape,padding_mask.shape)
     # print(h36m_motion_input[0,0,0])
     # exit()
+
+    # # Uncomment to activate noise augmentation
+    # h36m_motion_input = random_add(h36m_motion_input, 0.025)
 
     if args.random_rotate:
         h36m_motion_input,h36m_motion_target=getRandomRotatePoseTransform(h36m_motion_input,h36m_motion_target)
@@ -214,6 +226,29 @@ def write(metric_name,metric_val,iter,llog):
 
     llog.flush()
 
+def runtest(config, model, dataloader_test):
+    with torch.no_grad():
+        model.eval()
+        print("begin test")
+        
+        print_frames = [0, 1, 2]
+        if config.t_pred == 25:
+            print_frames = [0, 9, 24]
+        elif config.t_pred_eval == 30:
+            print_frames = [0, 11, 29]
+        elif config.t_pred_eval == 90:
+            print_frames = [29, 59, 89]
+        mpjpe,vim,jpe,ape,fde=mpjpe_vim_test(config, model, dataloader_test,is_mocap=False,select_vim_frames=[1, 3, 7, 9, 13],select_mpjpe_frames=print_frames)
+
+        print(f"iter:{nb_iter},vim:",vim)
+        print(f"iter:{nb_iter},mpjpe:",mpjpe)
+        
+        model.train()
+
+if config.model_pth is not None :
+    runtest(config, model, dataloader_test)
+    exit()
+
 while (nb_iter + 1) < config.cos_lr_total_iters:
     print(f"{nb_iter + 1} / {config.cos_lr_total_iters}")
     # joint_list=[]
@@ -258,58 +293,60 @@ while (nb_iter + 1) < config.cos_lr_total_iters:
             avg_lr = 0
         # Save model and evaluate model
         if (nb_iter + 1) % config.save_every ==  0 or nb_iter==0:
-            with torch.no_grad():
-                # torch.save(model.state_dict(), config.snapshot_dir + '/model-iter-' + str(nb_iter + 1) + '.pth')
-                model.eval()
+            runtest(config, model, dataloader_test)
+
+            # with torch.no_grad():
+            #     # torch.save(model.state_dict(), config.snapshot_dir + '/model-iter-' + str(nb_iter + 1) + '.pth')
+            #     model.eval()
                 
-                print("begin test")
+            #     print("begin test")
                 
-                # vim_3dpw=vim_test(config, model, dataloader_test,dataset="3dpw")
-                print_frames = [0, 1, 2]
-                if config.t_pred == 25:
-                    print_frames = [0, 9, 24]
-                elif config.t_pred_eval == 30:
-                    print_frames = [0, 11, 29]
-                elif config.t_pred_eval == 90:
-                    print_frames = [29, 59, 89]
-                mpjpe,vim,jpe,ape,fde=mpjpe_vim_test(config, model, dataloader_test,is_mocap=False,select_vim_frames=[1, 3, 7, 9, 13],select_mpjpe_frames=print_frames)
+            #     # vim_3dpw=vim_test(config, model, dataloader_test,dataset="3dpw")
+            #     print_frames = [0, 1, 2]
+            #     if config.t_pred == 25:
+            #         print_frames = [0, 9, 24]
+            #     elif config.t_pred_eval == 30:
+            #         print_frames = [0, 11, 29]
+            #     elif config.t_pred_eval == 90:
+            #         print_frames = [29, 59, 89]
+            #     mpjpe,vim,jpe,ape,fde=mpjpe_vim_test(config, model, dataloader_test,is_mocap=False,select_vim_frames=[1, 3, 7, 9, 13],select_mpjpe_frames=print_frames)
 
-                print(f"iter:{nb_iter},vim:",vim)
-                print(f"iter:{nb_iter},mpjpe:",mpjpe)
+            #     print(f"iter:{nb_iter},vim:",vim)
+            #     print(f"iter:{nb_iter},mpjpe:",mpjpe)
                 
-                # update_metric(metric_best,"vim",vim,nb_iter)
-                # update_metric(metric_best,"mpjpe",mpjpe,nb_iter)
-                # update_metric(metric_best,"jpe",jpe,nb_iter)
-                # update_metric(metric_best,"ape",ape,nb_iter)
-                # update_metric(metric_best,"fde",fde,nb_iter)
-                # ##log acc_log
+            #     # update_metric(metric_best,"vim",vim,nb_iter)
+            #     # update_metric(metric_best,"mpjpe",mpjpe,nb_iter)
+            #     # update_metric(metric_best,"jpe",jpe,nb_iter)
+            #     # update_metric(metric_best,"ape",ape,nb_iter)
+            #     # update_metric(metric_best,"fde",fde,nb_iter)
+            #     # ##log acc_log
 
-                # # if min_vim>vim.mean():
-                # #     min_vim=vim.mean()
-                # #     torch.save(model.state_dict(), config.snapshot_dir + '/model-best' + '.pth')
-                # # torch.save(model.state_dict(), config.snapshot_dir + '/model-iter-' + str(nb_iter + 1) + '.pth')
+            #     # # if min_vim>vim.mean():
+            #     # #     min_vim=vim.mean()
+            #     # #     torch.save(model.state_dict(), config.snapshot_dir + '/model-best' + '.pth')
+            #     # # torch.save(model.state_dict(), config.snapshot_dir + '/model-iter-' + str(nb_iter + 1) + '.pth')
 
-                # # line = 'vim_3dpw:'         
-                # # line+=str(vim.mean())+' '
-                # # for ii in vim:
-                # #     line += str(ii) + ' '
-                # # line += '\n'
-                # # acc_log.write(''.join(line))
+            #     # # line = 'vim_3dpw:'         
+            #     # # line+=str(vim.mean())+' '
+            #     # # for ii in vim:
+            #     # #     line += str(ii) + ' '
+            #     # # line += '\n'
+            #     # # acc_log.write(''.join(line))
 
-                # # acc_log.flush()
-                # write("vim",vim,nb_iter,acc_log)
-                # write("mpjpe",mpjpe,nb_iter,acc_log)
-                # write("jpe",jpe,nb_iter,acc_log)
-                # write("ape",ape,nb_iter,acc_log)
-                # write("fde",fde,nb_iter,acc_log)
+            #     # # acc_log.flush()
+            #     # write("vim",vim,nb_iter,acc_log)
+            #     # write("mpjpe",mpjpe,nb_iter,acc_log)
+            #     # write("jpe",jpe,nb_iter,acc_log)
+            #     # write("ape",ape,nb_iter,acc_log)
+            #     # write("fde",fde,nb_iter,acc_log)
 
-                # write("vim",metric_best.vim.val,metric_best.vim.iter,acc_best_log)
-                # write("mpjpe",metric_best.mpjpe.val,metric_best.mpjpe.iter,acc_best_log)
-                # write("jpe",metric_best.jpe.val,metric_best.jpe.iter,acc_best_log)
-                # write("ape",metric_best.ape.val,metric_best.ape.iter,acc_best_log)
-                # write("fde",metric_best.fde.val,metric_best.fde.iter,acc_best_log)
+            #     # write("vim",metric_best.vim.val,metric_best.vim.iter,acc_best_log)
+            #     # write("mpjpe",metric_best.mpjpe.val,metric_best.mpjpe.iter,acc_best_log)
+            #     # write("jpe",metric_best.jpe.val,metric_best.jpe.iter,acc_best_log)
+            #     # write("ape",metric_best.ape.val,metric_best.ape.iter,acc_best_log)
+            #     # write("fde",metric_best.fde.val,metric_best.fde.iter,acc_best_log)
                 
-                model.train()
+            #     model.train()
 
         # # Visualize model
         # if ((nb_iter + 1) % config.vis_every ==  0 ) :
@@ -331,3 +368,4 @@ while (nb_iter + 1) < config.cos_lr_total_iters:
         nb_iter += 1
 
 writer.close()
+torch.save(model.state_dict(), "/EMPMP_ALL/pt_ckpts/" + args.model_name + ".pth")
