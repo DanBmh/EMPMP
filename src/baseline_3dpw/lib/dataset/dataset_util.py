@@ -318,15 +318,18 @@ class SkeldaDataset(MultiPersonPoseDataset):
             # "/datasets/preprocessed/amass/bmlmovi.json",
             # "/datasets/preprocessed/amass/bmlrub.json",
             # "/datasets/preprocessed/amass/kit.json",
+            # "/datasets/preprocessed/chi3d/train_forecast_rpt.json",
         ]
 
         dataset_eval_test = "/datasets/preprocessed/human36m/{}_forecast_rpt.json"
         # dataset_eval_test = "/datasets/preprocessed/cmu-mocap/{}.json"
+        # dataset_eval_test = "/datasets/preprocessed/chi3d/{}_forecast_rpt.json"
         self.seq_len = 50+25
         # self.seq_len = 60+30
         # self.seq_len = 180+90
         self.dsname = datasets_train[0].split("/")[-2]
         J = 13
+        nperson = 1
 
         config["input_n"] = self.seq_len // 3 * 2
         config["output_n"] = self.seq_len // 3
@@ -339,6 +342,8 @@ class SkeldaDataset(MultiPersonPoseDataset):
             dataset_train, dlen_train = [], 0
             for dp in datasets_train:
                 cfg = copy.deepcopy(config)
+                if "chi3d" in dp:
+                    cfg["select_joints"][cfg["select_joints"].index("nose")] = "head"
                 if "mocap" in dp:
                     cfg["select_joints"][cfg["select_joints"].index("nose")] = "head_upper"
                     cfg["item_step"] = 1
@@ -364,10 +369,14 @@ class SkeldaDataset(MultiPersonPoseDataset):
             dlen = dlen_train
         else:
             if self.split != "test":
-                esplit = "test" if "mocap" in dataset_eval_test else "eval"
+                esplit = "eval"
+                esplit = "test" if "mocap" in dataset_eval_test else esplit
+                esplit = "test" if "chi3d" in dataset_eval_test else esplit
             else:
                 esplit = "test"
             cfg = copy.deepcopy(config)
+            if "chi3d" in dataset_eval_test:
+                cfg["select_joints"][cfg["select_joints"].index("nose")] = "head"
             if "mocap" in dataset_eval_test:
                 cfg["select_joints"][cfg["select_joints"].index("nose")] = "head_upper"
                 cfg["item_step"] = 1
@@ -399,15 +408,15 @@ class SkeldaDataset(MultiPersonPoseDataset):
             )
 
             # Switch y and z axes
-            sequences_train = sequences_train[:, :, :, [0, 2, 1]]
-            sequences_gt = sequences_gt[:, :, :, [0, 2, 1]]
+            sequences_train = sequences_train[..., [0, 2, 1]]
+            sequences_gt = sequences_gt[..., [0, 2, 1]]
 
             # Reshape to [nbatch, npersons, nframes, njoints, 3]
             sequences_train = sequences_train.reshape(
-                [nbatch, 1, sequences_train.shape[1], J, 3]
+                [nbatch, nperson, sequences_train.shape[1], J, 3]
             )
             sequences_gt = sequences_gt.reshape(
-                [nbatch, 1, sequences_gt.shape[1], J, 3]
+                [nbatch, nperson, sequences_gt.shape[1], J, 3]
             )
 
             temp_data = np.concatenate([sequences_train, sequences_gt], axis=2)
@@ -415,7 +424,8 @@ class SkeldaDataset(MultiPersonPoseDataset):
 
             # Duplicate for 2 persons, this is a simple addition to fix the training,
             # which also should not affect the model's performance
-            temp_data = np.concatenate([temp_data, temp_data], axis=0)
+            if nperson == 1:
+                temp_data = np.concatenate([temp_data, temp_data], axis=0)
 
             all_data.append(temp_data)
 
